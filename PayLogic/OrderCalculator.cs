@@ -1,73 +1,63 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SQLite;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 
 namespace WinFormsApp2.PayLogic
 {
     public class OrderCalculator
     {
-        private Dictionary<string, decimal> servicePrices;
+        private readonly Dictionary<string, decimal> servicePrices;
 
         public OrderCalculator()
         {
-            LoadPricesFromDatabase();
+            servicePrices = LoadPricesFromJson();
         }
 
-        private void LoadPricesFromDatabase()
+        private Dictionary<string, decimal> LoadPricesFromJson()
         {
-            servicePrices = new Dictionary<string, decimal>();
+            const string filePath = "services.json";
 
-            try
+            if (!File.Exists(filePath))
             {
-                string dbPath = "app.db";
-                if (!System.IO.File.Exists(dbPath))
-                    throw new Exception($"Файл бази даних не знайдено: {dbPath}");
-
-                using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
+                var defaultPrices = new Dictionary<string, decimal>
                 {
-                    conn.Open();
-                    string sql = "SELECT name, price FROM Services";
+                    { "Охорона", 300 },
+                    { "Доставка", 150 },
+                    { "Ескорт", 2000 },
+                    { "Таксі", 100 }
+                };
 
-                    using (var cmd = new SQLiteCommand(sql, conn))
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            string name = reader["name"]?.ToString() ?? "";
-                            string priceStr = reader["price"]?.ToString() ?? "0";
+                var json = JsonSerializer.Serialize(defaultPrices, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
 
-                            if (decimal.TryParse(priceStr, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal price))
-                                servicePrices[name] = price;
-                            else
-                                servicePrices[name] = 0m;
-                        }
-                    }
-                }
+                File.WriteAllText(filePath, json);
+                return defaultPrices;
             }
-            catch (Exception ex)
-            {
-                throw new Exception("Не вдалося завантажити ціни", ex);
-            }
+
+            string fileContent = File.ReadAllText(filePath);
+
+            return JsonSerializer.Deserialize<Dictionary<string, decimal>>(fileContent)
+                   ?? new Dictionary<string, decimal>();
         }
 
         public decimal GetPrice(string serviceName)
         {
-            return servicePrices.TryGetValue(serviceName, out decimal price) ? price : 0m;
+            return servicePrices.TryGetValue(serviceName, out var price) ? price : 0m;
         }
 
         public decimal CalculateTotal(IEnumerable<string> selectedServices)
         {
-            if (selectedServices == null)
-                return 0m;
-
-            return selectedServices.Sum(s => GetPrice(s));
+            return selectedServices?.Sum(GetPrice) ?? 0m;
         }
 
         public IReadOnlyDictionary<string, decimal> GetAllServices()
         {
-            return new Dictionary<string, decimal>(servicePrices); // повертаємо копію
+            return new Dictionary<string, decimal>(servicePrices);
         }
     }
 }
